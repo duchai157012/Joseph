@@ -1,0 +1,65 @@
+version: '3.8'
+
+services:
+  # --- Data Store ---
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: joseph-sqlserver
+    environment:
+      - ACCEPT_EULA=Y
+      - SA_PASSWORD=Password123!
+    ports:
+      - "1433:1433"
+    volumes:
+      - sqlserver_data:/var/opt/mssql
+    networks:
+      - app-network
+
+  # --- Message Broker ---
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: joseph-rabbitmq
+    ports:
+      - "15672:15672" # Management UI
+      - "5672:5672"   # AMQP
+    environment:
+      - RABBITMQ_DEFAULT_USER=guest
+      - RABBITMQ_DEFAULT_PASS=guest
+    networks:
+      - app-network
+
+  # --- Observability ---
+  seq:
+    image: datalust/seq:latest
+    container_name: joseph-seq
+    environment:
+      - ACCEPT_EULA=Y
+    ports:
+      - "5341:5341"
+      - "8081:80"
+    networks:
+      - app-network
+
+  zipkin:
+    image: openzipkin/zipkin
+    container_name: joseph-zipkin
+    ports:
+      - "9411:9411"
+    networks:
+      - app-network
+
+  # --- Caching ---
+  redis:
+    image: redis:alpine
+    container_name: joseph-redis
+    ports:
+      - "6379:6379"
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge
+
+volumes:
+  sqlserver_data:
