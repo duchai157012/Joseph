@@ -1,4 +1,5 @@
 using Auth.Domain.Entities;
+using BuildingBlocks.Common.Exceptions;
 using MediatR;
 using Microsoft.AspNetCore.Identity;
 
@@ -26,7 +27,8 @@ public class RegisterCommandHandler : IRequestHandler<RegisterCommand, string>
 
         if (!result.Succeeded)
         {
-            throw new Exception(string.Join(", ", result.Errors.Select(e => e.Description)));
+            var errorMessage = string.Join(", ", result.Errors.Select(e => e.Description));
+            throw new ValidationException(errorMessage);
         }
 
         return user.Id;

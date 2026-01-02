@@ -1,7 +1,6 @@
 version: '3.8'
 
 services:
-  # --- Data Store ---
   sqlserver:
     image: mcr.microsoft.com/mssql/server:2022-latest
     container_name: joseph-sqlserver
@@ -14,21 +13,29 @@ services:
       - sqlserver_data:/var/opt/mssql
     networks:
       - app-network
+    healthcheck:
+      test: /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "Password123!" -Q "SELECT 1" -C || exit 1
+      interval: 10s
+      timeout: 3s
+      retries: 10
 
-  # --- Message Broker ---
   rabbitmq:
-    image: rabbitmq:3-management
+    image: rabbitmq:3-management-alpine
     container_name: joseph-rabbitmq
     ports:
-      - "15672:15672" # Management UI
-      - "5672:5672"   # AMQP
+      - "15672:15672"
+      - "5672:5672"
     environment:
       - RABBITMQ_DEFAULT_USER=guest
       - RABBITMQ_DEFAULT_PASS=guest
     networks:
       - app-network
+    healthcheck:
+      test: rabbitmq-diagnostics -q ping
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
-  # --- Observability ---
   seq:
     image: datalust/seq:latest
     container_name: joseph-seq
@@ -48,14 +55,155 @@ services:
     networks:
       - app-network
 
-  # --- Caching ---
   redis:
-    image: redis:alpine
+    image: redis:7-alpine
     container_name: joseph-redis
     ports:
       - "6379:6379"
     networks:
       - app-network
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  auth-api:
+    build:
+      context: .
+      dockerfile: src/Services/Auth/Auth.API/Dockerfile
+    container_name: joseph-auth-api
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_HTTP_PORTS=8080
+      - ConnectionStrings__DefaultConnection=Server=sqlserver,1433;Database=AuthDb;User Id=sa;Password=Password123!;TrustServerCertificate=True;
+      - JwtSettings__SecretKey=ThisIsASecretKeyForJwtTokenGeneration
+      - JwtSettings__Issuer=https://auth.joseph.com
+      - JwtSettings__Audience=https://api.joseph.com
+      - Logging__SeqUrl=http://seq:5341
+    ports:
+      - "5002:8080"
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+      seq:
+        condition: service_started
+    networks:
+      - app-network
+    restart: on-failure
+
+  catalog-api:
+    build:
+      context: .
+      dockerfile: src/Services/Catalog/Catalog.API/Dockerfile
+    container_name: joseph-catalog-api
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_HTTP_PORTS=8080
+      - ConnectionStrings__DefaultConnection=Server=sqlserver,1433;Database=CatalogDb;User Id=sa;Password=Password123!;TrustServerCertificate=True;
+      - Logging__SeqUrl=http://seq:5341
+    ports:
+      - "5000:8080"
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+      seq:
+        condition: service_started
+    networks:
+      - app-network
+    restart: on-failure
+
+  order-api:
+    build:
+      context: .
+      dockerfile: src/Services/Order/Order.API/Dockerfile
+    container_name: joseph-order-api
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_HTTP_PORTS=8080
+      - ConnectionStrings__DefaultConnection=Server=sqlserver,1433;Database=OrderDb;User Id=sa;Password=Password123!;TrustServerCertificate=True;
+      - RabbitMq__Host=rabbitmq
+      - RabbitMq__Username=guest
+      - RabbitMq__Password=guest
+      - Logging__SeqUrl=http://seq:5341
+    ports:
+      - "5001:8080"
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      seq:
+        condition: service_started
+    networks:
+      - app-network
+    restart: on-failure
+
+  payment-api:
+    build:
+      context: .
+      dockerfile: src/Services/Payment/Payment.API/Dockerfile
+    container_name: joseph-payment-api
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_HTTP_PORTS=8080
+      - RabbitMq__Host=rabbitmq
+      - RabbitMq__Username=guest
+      - RabbitMq__Password=guest
+      - Logging__SeqUrl=http://seq:5341
+    ports:
+      - "5003:8080"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      seq:
+        condition: service_started
+    networks:
+      - app-network
+    restart: on-failure
+
+  notification-api:
+    build:
+      context: .
+      dockerfile: src/Services/Notification/Notification.API/Dockerfile
+    container_name: joseph-notification-api
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_HTTP_PORTS=8080
+      - RabbitMq__Host=rabbitmq
+      - RabbitMq__Username=guest
+      - RabbitMq__Password=guest
+      - Logging__SeqUrl=http://seq:5341
+    ports:
+      - "5004:8080"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      seq:
+        condition: service_started
+    networks:
+      - app-network
+    restart: on-failure
+
+  gateway:
+    build:
+      context: .
+      dockerfile: src/Gateway/Dockerfile
+    container_name: joseph-gateway
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_HTTP_PORTS=8080
+    ports:
+      - "8080:8080"
+    depends_on:
+      - auth-api
+      - catalog-api
+      - order-api
+      - payment-api
+      - notification-api
+    networks:
+      - app-network
+    restart: on-failure
 
 networks:
   app-network:

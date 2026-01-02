@@ -1,63 +1,115 @@
+using BuildingBlocks.Middleware;
 using MassTransit;
 using Microsoft.EntityFrameworkCore;
+using Order.API.Extensions;
+using Order.API.Middleware;
 using Order.Application.Interfaces;
 using Order.Infrastructure.Persistence;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.IdentityModel.Tokens;
-using System.Text;
+using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
+
+var seqUrl = builder.Configuration["Logging:SeqUrl"] ?? "http://localhost:5341";
+
+Log.Logger = new LoggerConfiguration()
+    .ReadFrom.Configuration(builder.Configuration)
+    .Enrich.FromLogContext()
+    .WriteTo.Console()
+    .WriteTo.Logger(lc => lc
+        .Filter.ByIncludingOnly(evt => builder.Environment.IsDevelopment())
+        .WriteTo.File("logs/order-.txt", rollingInterval: RollingInterval.Day))
+    .WriteTo.Seq(seqUrl)
+    .CreateLogger();
+
+builder.Host.UseSerilog();
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-// Application Layer
-builder.Services.AddMediatR(cfg => cfg.RegisterServicesFromAssembly(typeof(Order.Application.Features.Orders.Commands.CreateOrder.CreateOrderCommand).Assembly));
+builder.Services.AddApplicationServices();
+builder.Services.AddInfrastructureServices();
 
-// Infrastructure Layer (EF Core)
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
+    ?? throw new InvalidOperationException("Database connection string not configured");
+
 builder.Services.AddDbContext<OrderDbContext>(options =>
-    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+    options.UseSqlServer(connectionString));
 
 builder.Services.AddScoped<IOrderDbContext>(provider => provider.GetRequiredService<OrderDbContext>());
 
-// MassTransit (RabbitMQ)
 builder.Services.AddMassTransit(x =>
 {
     x.UsingRabbitMq((context, cfg) =>
     {
         cfg.Host(builder.Configuration["RabbitMq:Host"] ?? "localhost", "/", h =>
         {
-            h.Username("guest");
-            h.Password("guest");
+            h.Username(builder.Configuration["RabbitMq:Username"] ?? "guest");
+            h.Password(builder.Configuration["RabbitMq:Password"] ?? "guest");
         });
     });
 });
 
+builder.Services.AddHealthChecks()
+    .AddSqlServer(connectionString)
+    .AddRabbitMQ(rabbitConnectionString: $"amqp://guest:guest@{builder.Configuration["RabbitMq:Host"] ?? "localhost"}:5672");
+
+builder.Services.AddHsts(options =>
+{
+    options.MaxAge = TimeSpan.FromDays(365);
+    options.IncludeSubDomains = true;
+    options.Preload = true;
+});
+
 var app = builder.Build();
+
+app.UseMiddleware<GlobalExceptionMiddleware>();
+app.UseMiddleware<CorrelationIdMiddleware>();
 
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI();
 }
+else
+{
+    app.UseHttpsRedirection();
+    app.UseHsts();
+}
+
+app.UseSerilogRequestLogging();
 
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
+app.MapHealthChecks("/health");
 
-// Auto-migration
 using (var scope = app.Services.CreateScope())
 {
     var context = scope.ServiceProvider.GetRequiredService<OrderDbContext>();
-    try 
+    try
     {
-         context.Database.EnsureCreated();
+        if (app.Environment.IsDevelopment())
+        {
+            await context.Database.MigrateAsync();
+        }
     }
-    catch(Exception ex)
+    catch (Exception ex)
     {
-        Console.WriteLine(ex.Message);
+        Log.Error(ex, "Database migration failed");
     }
 }
 
-app.Run();
+try
+{
+    Log.Information("Starting Order API");
+    app.Run();
+}
+catch (Exception ex)
+{
+    Log.Fatal(ex, "Application terminated unexpectedly");
+}
+finally
+{
+    Log.CloseAndFlush();
+}

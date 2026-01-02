@@ -1,0 +1,16 @@
+**/bin/
+**/obj/
+**/out/
+**/.vs/
+**/.vscode/
+**/logs/
+**/*.md
+**/Dockerfile
+**/.git/
+**/.gitignore
+**/docker-compose*.yml
+**/*.user
+**/*.suo
+**/TestResults/
+**/.editorconfig
+**/launchSettings.json

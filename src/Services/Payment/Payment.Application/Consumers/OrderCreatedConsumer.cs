@@ -19,12 +19,11 @@ public class OrderCreatedConsumer : IConsumer<OrderCreatedEvent>
     {
         _logger.LogInformation("Processing Payment for Order {OrderId}...", context.Message.OrderId);
 
-        // Simulate Processing Delay
         await Task.Delay(1000);
 
         _logger.LogInformation("Payment Successful for Order {OrderId}", context.Message.OrderId);
 
-        await _publishEndpoint.Publish<PaymentSucceededEvent>(new 
+        await _publishEndpoint.Publish<PaymentSucceededEvent>(new
         {
             OrderId = context.Message.OrderId,
             PaymentId = Guid.NewGuid(),

@@ -1,0 +1,199 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+env:
+  DOTNET_VERSION: '9.0.x'
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ${{ github.repository_owner }}/joseph
+
+jobs:
+  build-and-test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      - name: Restore dependencies
+        run: dotnet restore Joseph.sln
+
+      - name: Build solution
+        run: dotnet build Joseph.sln --configuration Release --no-restore
+
+      - name: Run unit tests
+        run: dotnet test Joseph.sln --configuration Release --no-build --verbosity normal --logger trx --results-directory "TestResults"
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: TestResults/*.trx
+
+  dockerize:
+    name: Build & Push Docker Images
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+    
+    permissions:
+      contents: read
+      packages: write
+
+    strategy:
+      matrix:
+        service:
+          - name: auth-api
+            dockerfile: src/Services/Auth/Auth.API/Dockerfile
+          - name: catalog-api
+            dockerfile: src/Services/Catalog/Catalog.API/Dockerfile
+          - name: order-api
+            dockerfile: src/Services/Order/Order.API/Dockerfile
+          - name: payment-api
+            dockerfile: src/Services/Payment/Payment.API/Dockerfile
+          - name: notification-api
+            dockerfile: src/Services/Notification/Notification.API/Dockerfile
+          - name: gateway
+            dockerfile: src/Gateway/Dockerfile
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-${{ matrix.service.name }}
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix={{branch}}-
+            type=semver,pattern={{version}}
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ${{ matrix.service.dockerfile }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy-azure:
+    name: Deploy to Azure Container Apps
+    runs-on: ubuntu-latest
+    needs: dockerize
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    environment: production
+    
+    strategy:
+      matrix:
+        service:
+          - name: auth-api
+            port: 8080
+          - name: catalog-api
+            port: 8080
+          - name: order-api
+            port: 8080
+          - name: payment-api
+            port: 8080
+          - name: notification-api
+            port: 8080
+          - name: gateway
+            port: 8080
+
+    steps:
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Deploy to Azure Container Apps
+        uses: azure/container-apps-deploy-action@v1
+        with:
+          containerAppName: joseph-${{ matrix.service.name }}
+          resourceGroup: ${{ secrets.AZURE_RESOURCE_GROUP }}
+          imageToDeploy: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-${{ matrix.service.name }}:latest
+          targetPort: ${{ matrix.service.port }}
+          environmentVariables: |
+            ASPNETCORE_ENVIRONMENT=Production
+            Logging__SeqUrl=${{ secrets.SEQ_URL }}
+
+  deploy-docker-hub:
+    name: Push to Docker Hub (Alternative)
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.USE_DOCKER_HUB == 'true'
+    
+    strategy:
+      matrix:
+        service:
+          - name: auth-api
+            dockerfile: src/Services/Auth/Auth.API/Dockerfile
+          - name: catalog-api
+            dockerfile: src/Services/Catalog/Catalog.API/Dockerfile
+          - name: order-api
+            dockerfile: src/Services/Order/Order.API/Dockerfile
+          - name: payment-api
+            dockerfile: src/Services/Payment/Payment.API/Dockerfile
+          - name: notification-api
+            dockerfile: src/Services/Notification/Notification.API/Dockerfile
+          - name: gateway
+            dockerfile: src/Gateway/Dockerfile
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push to Docker Hub
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ${{ matrix.service.dockerfile }}
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/joseph-${{ matrix.service.name }}:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/joseph-${{ matrix.service.name }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
