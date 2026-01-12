@@ -125,6 +125,7 @@ services:
       - RabbitMq__Host=rabbitmq
       - RabbitMq__Username=guest
       - RabbitMq__Password=guest
+      - Services__CatalogApi__BaseUrl=http://catalog-api:8080
       - Logging__SeqUrl=http://seq:5341
     ports:
       - "5001:8080"
