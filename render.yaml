@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: joseph-catalog-api
+    runtime: docker
+    plan: free
+    region: singapore # Optional, closest to user ideally
+    context: .
+    dockerfilePath: src/Services/Catalog/Catalog.API/Dockerfile
+    
+    envVars:
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production
+      - key: ConnectionStrings__DefaultConnection
+        sync: false # User must provide this value in Render Dashboard (Neon Connection String)
+      - key: ASPNETCORE_HTTP_PORTS
+        value: 8080
+        
+    healthCheckPath: /health
+    startCommand: "" # Dockerfile handles it

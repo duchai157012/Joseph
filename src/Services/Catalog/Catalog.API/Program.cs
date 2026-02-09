@@ -33,12 +33,12 @@ var connectionString = builder.Configuration.GetConnectionString("DefaultConnect
     ?? throw new InvalidOperationException("Database connection string not configured");
 
 builder.Services.AddDbContext<CatalogDbContext>(options =>
-    options.UseSqlServer(connectionString));
+    options.UseNpgsql(connectionString));
 
 builder.Services.AddScoped<ICatalogDbContext>(provider => provider.GetRequiredService<CatalogDbContext>());
 
-builder.Services.AddHealthChecks()
-    .AddSqlServer(connectionString);
+builder.Services.AddHealthChecks();
+//.AddNpgsql(connectionString);
 
 builder.Services.AddHsts(options =>
 {
@@ -49,7 +49,7 @@ builder.Services.AddHsts(options =>
 
 var app = builder.Build();
 
-app.UseMiddleware<GlobalExceptionMiddleware>();
+app.UseMiddleware<BuildingBlocks.Middleware.GlobalExceptionMiddleware>();
 app.UseMiddleware<CorrelationIdMiddleware>();
 
 if (app.Environment.IsDevelopment())

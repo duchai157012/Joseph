@@ -1,0 +1,19 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - infrastructure/namespace.yaml
+  - infrastructure/sqlserver.yaml
+  - infrastructure/rabbitmq.yaml
+  - infrastructure/redis.yaml
+  - infrastructure/seq.yaml
+  - infrastructure/zipkin.yaml
+  - services/auth-api.yaml
+  - services/catalog-api.yaml
+  - services/order-api.yaml
+  - services/payment-api.yaml
+  - services/notification-api.yaml
+  - services/gateway.yaml
+  - config/configmap.yaml
+  - config/secrets.yaml
+  - networking/ingress.yaml

@@ -1,0 +1,145 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sqlserver-init
+  namespace: joseph-dev
+data:
+  init-data.sql: |
+    -- Create databases if they don't exist
+    IF NOT EXISTS (SELECT * FROM sys.databases WHERE name = 'AuthDb')
+    BEGIN
+      CREATE DATABASE AuthDb;
+    END
+    GO
+    
+    IF NOT EXISTS (SELECT * FROM sys.databases WHERE name = 'CatalogDb')
+    BEGIN
+      CREATE DATABASE CatalogDb;
+    END
+    GO
+    
+    IF NOT EXISTS (SELECT * FROM sys.databases WHERE name = 'OrderDb')
+    BEGIN
+      CREATE DATABASE OrderDb;
+    END
+    GO
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: sqlserver-secret
+  namespace: joseph-dev
+type: Opaque
+data:
+  # Password: "Password123!"
+  SA_PASSWORD: UGFzc3dvcmQxMjMh
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sqlserver
+  namespace: joseph-dev
+  labels:
+    app: sqlserver
+spec:
+  type: ClusterIP
+  ports:
+    - port: 1433
+      targetPort: 1433
+      protocol: TCP
+      name: mssql
+  selector:
+    app: sqlserver
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: sqlserver
+  namespace: joseph-dev
+  labels:
+    app: sqlserver
+spec:
+  serviceName: sqlserver
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sqlserver
+  template:
+    metadata:
+      labels:
+        app: sqlserver
+    spec:
+      containers:
+        - name: mssql
+          image: mcr.microsoft.com/mssql/server:2022-latest
+          ports:
+            - containerPort: 1433
+              name: mssql
+          env:
+            - name: ACCEPT_EULA
+              value: "Y"
+            - name: MSSQL_SA_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: sqlserver-secret
+                  key: SA_PASSWORD
+            - name: MSSQL_PID
+              value: "Developer"
+          volumeMounts:
+            - name: sqlserver-data
+              mountPath: /var/opt/mssql
+            - name: init-scripts
+              mountPath: /docker-entrypoint-initdb.d
+          resources:
+            requests:
+              memory: "2Gi"
+              cpu: "500m"
+            limits:
+              memory: "4Gi"
+              cpu: "2000m"
+          livenessProbe:
+            exec:
+              command:
+                - /opt/mssql-tools18/bin/sqlcmd
+                - -S
+                - localhost
+                - -U
+                - sa
+                - -P
+                - $(MSSQL_SA_PASSWORD)
+                - -Q
+                - SELECT 1
+                - -C
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command:
+                - /opt/mssql-tools18/bin/sqlcmd
+                - -S
+                - localhost
+                - -U
+                - sa
+                - -P
+                - $(MSSQL_SA_PASSWORD)
+                - -Q
+                - SELECT 1
+                - -C
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+      volumes:
+        - name: init-scripts
+          configMap:
+            name: sqlserver-init
+  volumeClaimTemplates:
+    - metadata:
+        name: sqlserver-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 10Gi

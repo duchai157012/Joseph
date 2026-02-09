@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  namespace: joseph-dev
+data:
+  ASPNETCORE_ENVIRONMENT: "Development"
+  Logging__SeqUrl: "http://seq:5341"
+  ConnectionStrings__DefaultConnection: "Server=sqlserver,1433;User Id=sa;Password=Password123!;TrustServerCertificate=True;"
+  RabbitMq__Host: "rabbitmq"
+  RabbitMq__Username: "guest"
+  RabbitMq__Password: "guest"
+  Redis__Configuration: "redis:6379"
+  Zipkin__Endpoint: "http://zipkin:9411/api/v2/spans"

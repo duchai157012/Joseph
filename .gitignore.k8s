@@ -1,0 +1,5 @@
+# Add k8s/base/config/secrets.yaml to .gitignore
+k8s/base/config/secrets.yaml
+
+# Kind cluster volumes
+kind-volumes/

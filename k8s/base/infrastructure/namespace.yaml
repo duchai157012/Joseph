@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: joseph-dev
+  labels:
+    name: joseph-dev
+    environment: development
+    managed-by: argocd
+  annotations:
+    description: "Joseph microservices development environment"

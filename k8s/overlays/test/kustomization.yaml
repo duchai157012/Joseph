@@ -1,0 +1,61 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: joseph-test
+
+resources:
+  - ../../base
+
+commonLabels:
+  environment: test
+
+images:
+  - name: ghcr.io/CHANGEME/joseph-auth-api
+    newName: ghcr.io/duchai157012/joseph-auth-api
+    newTag: latest
+  - name: ghcr.io/CHANGEME/joseph-catalog-api
+    newName: ghcr.io/duchai157012/joseph-catalog-api
+    newTag: latest
+  - name: ghcr.io/CHANGEME/joseph-order-api
+    newName: ghcr.io/duchai157012/joseph-order-api
+    newTag: latest
+  - name: ghcr.io/CHANGEME/joseph-payment-api
+    newName: ghcr.io/duchai157012/joseph-payment-api
+    newTag: latest
+  - name: ghcr.io/CHANGEME/joseph-notification-api
+    newName: ghcr.io/duchai157012/joseph-notification-api
+    newTag: latest
+  - name: ghcr.io/CHANGEME/joseph-gateway
+    newName: ghcr.io/duchai157012/joseph-gateway
+    newTag: latest
+
+patches:
+  - target:
+      kind: Namespace
+      name: joseph-dev
+    patch: |-
+      - op: replace
+        path: /metadata/name
+        value: joseph-test
+  - target:
+      kind: ConfigMap
+      name: app-config
+    patch: |-
+      - op: replace
+        path: /data/ASPNETCORE_ENVIRONMENT
+        value: "Staging"
+      - op: add
+        path: /data/ASPNETCORE_URLS
+        value: "http://+:8080"
+      - op: add
+        path: /data/Logging__LogLevel__Default
+        value: "Information"
+      - op: add
+        path: /data/Logging__LogLevel__Microsoft.AspNetCore
+        value: "Warning"
+      - op: add
+        path: /data/FeatureManagement__EnableCache
+        value: "true"
+      - op: add
+        path: /data/FeatureManagement__EnableDetailedErrors
+        value: "true"

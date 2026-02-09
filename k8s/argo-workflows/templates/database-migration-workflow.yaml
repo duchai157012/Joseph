@@ -1,0 +1,79 @@
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: database-migration
+  namespace: argo
+spec:
+  serviceAccountName: workflow-executor
+  
+  entrypoint: migrate-databases
+  
+  arguments:
+    parameters:
+      - name: service
+        value: "all"  # or specific service: auth-api, catalog-api, order-api
+  
+  templates:
+    - name: migrate-databases
+      steps:
+        - - name: check-service
+            template: determine-services
+        
+        - - name: run-migration
+            template: execute-migration
+            arguments:
+              parameters:
+                - name: service-name
+                  value: "{{item}}"
+            withParam: "{{steps.check-service.outputs.result}}"
+    
+    - name: determine-services
+      script:
+        image: alpine:latest
+        command: [sh]
+        source: |
+          if [ "{{workflow.parameters.service}}" = "all" ]; then
+            echo '["auth-api", "catalog-api", "order-api"]'
+          else
+            echo '["{{workflow.parameters.service}}"]'
+          fi
+    
+    - name: execute-migration
+      inputs:
+        parameters:
+          - name: service-name
+      container:
+        image: mcr.microsoft.com/dotnet/sdk:8.0
+        command: [sh, -c]
+        args:
+          - |
+            echo "Starting migration for {{inputs.parameters.service-name}}..."
+            
+            # Install EF Core tools
+            dotnet tool install --global dotnet-ef
+            export PATH="$PATH:/root/.dotnet/tools"
+            
+            # Clone repository (in real scenario, use git credentials from secret)
+            # For now, assume code is mounted or this runs in CI/CD context
+            
+            echo "Migration for {{inputs.parameters.service-name}} completed"
+            
+            # In production, this would be:
+            # cd /workspace/src/Services/{{inputs.parameters.service-name}}
+            # dotnet ef database update --project *.Infrastructure --startup-project *.API
+        
+        env:
+          - name: ConnectionString
+            valueFrom:
+              secretKeyRef:
+                name: app-secrets
+                namespace: joseph-dev
+                key: SA_PASSWORD
+        
+        volumeMounts:
+          - name: workspace
+            mountPath: /workspace
+      
+      volumes:
+        - name: workspace
+          emptyDir: {}

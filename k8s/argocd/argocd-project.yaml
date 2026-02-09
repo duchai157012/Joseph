@@ -1,0 +1,30 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: joseph
+  namespace: argocd
+spec:
+  description: Joseph Microservices Project
+  
+  sourceRepos:
+    - https://github.com/duchai157012/Joseph.git
+  
+  destinations:
+    - namespace: joseph-dev
+      server: https://kubernetes.default.svc
+    - namespace: joseph-test
+      server: https://kubernetes.default.svc
+    - namespace: joseph-prod
+      server: https://kubernetes.default.svc
+    - namespace: argocd
+      server: https://kubernetes.default.svc
+  
+  clusterResourceWhitelist:
+    - group: ''
+      kind: Namespace
+    - group: 'networking.k8s.io'
+      kind: Ingress
+  
+  namespaceResourceWhitelist:
+    - group: '*'
+      kind: '*'

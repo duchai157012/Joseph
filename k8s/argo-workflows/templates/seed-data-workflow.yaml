@@ -1,0 +1,92 @@
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: seed-data
+  namespace: argo
+spec:
+  serviceAccountName: workflow-executor
+  
+  entrypoint: seed-database
+  
+  templates:
+    - name: seed-database
+      steps:
+        - - name: wait-for-sqlserver
+            template: wait-for-service
+            arguments:
+              parameters:
+                - name: service-name
+                  value: "sqlserver"
+                - name: namespace
+                  value: "joseph-dev"
+        
+        - - name: execute-seed-script
+            template: run-sql-script
+    
+    - name: wait-for-service
+      inputs:
+        parameters:
+          - name: service-name
+          - name: namespace
+      script:
+        image: mcr.microsoft.com/mssql-tools
+        command: [sh]
+        source: |
+          echo "Waiting for {{inputs.parameters.service-name}} to be ready..."
+          
+          until /opt/mssql-tools18/bin/sqlcmd \
+            -S {{inputs.parameters.service-name}}.{{inputs.parameters.namespace}}.svc.cluster.local,1433 \
+            -U sa -P "$SA_PASSWORD" -Q "SELECT 1" -C 2>/dev/null; do
+            echo "Waiting for SQL Server..."
+            sleep 5
+          done
+          
+          echo "SQL Server is ready!"
+        env:
+          - name: SA_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: app-secrets
+                namespace: joseph-dev
+                key: SA_PASSWORD
+    
+    - name: run-sql-script
+      container:
+        image: mcr.microsoft.com/mssql-tools
+        command: [sh, -c]
+        args:
+          - |
+            echo "Executing seed data script..."
+            
+            /opt/mssql-tools18/bin/sqlcmd \
+              -S sqlserver.joseph-dev.svc.cluster.local,1433 \
+              -U sa -P "$SA_PASSWORD" \
+              -Q "
+                USE CatalogDb;
+                
+                -- Insert sample products if not exists
+                IF NOT EXISTS (SELECT 1 FROM Products WHERE Id = 1)
+                BEGIN
+                  INSERT INTO Products (Id, Name, Description, Price, Stock)
+                  VALUES 
+                    (1, 'Laptop', 'High-performance laptop', 999.99, 50),
+                    (2, 'Mouse', 'Wireless mouse', 29.99, 200),
+                    (3, 'Keyboard', 'Mechanical keyboard', 79.99, 100);
+                  
+                  PRINT 'Seed data inserted successfully';
+                END
+                ELSE
+                BEGIN
+                  PRINT 'Seed data already exists';
+                END
+              " \
+              -C
+            
+            echo "Seed data execution completed!"
+        env:
+          - name: SA_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: app-secrets
+                namespace: joseph-dev
+                key: SA_PASSWORD

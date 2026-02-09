@@ -1,0 +1,36 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: joseph-prod
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  annotations:
+    notifications.argoproj.io/subscribe.on-sync-succeeded.slack: joseph-deployments
+spec:
+  project: joseph
+  
+  source:
+    repoURL: https://github.com/duchai157012/Joseph.git
+    targetRevision: main
+    path: k8s/overlays/prod
+  
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: joseph-prod
+  
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+  
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas

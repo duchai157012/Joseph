@@ -32,7 +32,7 @@ public class ValidationBehavior<TRequest, TResponse> : IPipelineBehavior<TReques
             .Where(f => f != null)
             .ToList();
 
-        if (failures.Any())
+        if (failures.Count > 0)
             throw new BuildingBlocks.Common.Exceptions.ValidationException(failures);
 
         return await next();
